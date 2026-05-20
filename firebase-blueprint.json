@@ -1,0 +1,226 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile with role details and account metadata.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The unique Firebase Authentication UID."
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name of the user."
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the user."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["patient", "admin"],
+          "description": "System role controlling access permissions."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Database insertion timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Database update timestamp."
+        }
+      },
+      "required": ["userId", "name", "email", "role", "createdAt", "updatedAt"]
+    },
+    "Doctor": {
+      "title": "Doctor",
+      "description": "Professional profile of a hospital doctor.",
+      "type": "object",
+      "properties": {
+        "doctorId": {
+          "type": "string",
+          "description": "Unique identifier for the doctor."
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name of the doctor."
+        },
+        "specialty": {
+          "type": "string",
+          "description": "Medical specialty (e.g., Cardiology, Pediatrics)."
+        },
+        "department": {
+          "type": "string",
+          "description": "Department name within the hospital."
+        },
+        "experience": {
+          "type": "string",
+          "description": "Years of experience."
+        },
+        "education": {
+          "type": "string",
+          "description": "Medical degree or educational credentials."
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "URL to the doctor's profile picture."
+        },
+        "availability": {
+          "type": "array",
+          "description": "Available days or time slots."
+        },
+        "email": {
+          "type": "string",
+          "description": "Professional email address."
+        }
+      },
+      "required": ["doctorId", "name", "specialty", "department", "experience", "education", "imageUrl", "email"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "A scheduled medical consultation.",
+      "type": "object",
+      "properties": {
+        "appointmentId": {
+          "type": "string",
+          "description": "Unique identifier for the appointment."
+        },
+        "patientId": {
+          "type": "string",
+          "description": "The UID of the booking patient."
+        },
+        "patientName": {
+          "type": "string",
+          "description": "Name of the booking patient."
+        },
+        "patientEmail": {
+          "type": "string",
+          "description": "Email of the booking patient."
+        },
+        "doctorId": {
+          "type": "string",
+          "description": "The UID or ID of the selected doctor."
+        },
+        "doctorName": {
+          "type": "string",
+          "description": "Name of the doctor."
+        },
+        "department": {
+          "type": "string",
+          "description": "Medical department under which the slot was booked."
+        },
+        "date": {
+          "type": "string",
+          "description": "YYYY-MM-DD date."
+        },
+        "time": {
+          "type": "string",
+          "description": "Time slot (e.g., '10:00 AM')."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "confirmed", "cancelled", "completed"],
+          "description": "Appointment schedule status."
+        },
+        "complaints": {
+          "type": "string",
+          "description": "Patient remarks or symptoms."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["appointmentId", "patientId", "patientName", "patientEmail", "doctorId", "doctorName", "department", "date", "time", "status", "createdAt", "updatedAt"]
+    },
+    "Report": {
+      "title": "Medical Report",
+      "description": "A diagnostic report associated with a patient.",
+      "type": "object",
+      "properties": {
+        "reportId": {
+          "type": "string",
+          "description": "Unique report identifier."
+        },
+        "patientId": {
+          "type": "string",
+          "description": "The patient who owns this report."
+        },
+        "patientName": {
+          "type": "string",
+          "description": "Name of the patient."
+        },
+        "patientEmail": {
+          "type": "string",
+          "description": "Email of the patient."
+        },
+        "doctorName": {
+          "type": "string",
+          "description": "Diagnosing doctor's name."
+        },
+        "reportName": {
+          "type": "string",
+          "description": "Title of the report (e.g., 'Lab Blood Test')."
+        },
+        "fileSize": {
+          "type": "string",
+          "description": "Display size of the report document."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Doctor's or laboratory diagnostic notes."
+        },
+        "uploadedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Upload timestamp."
+        }
+      },
+      "required": ["reportId", "patientId", "patientName", "patientEmail", "doctorName", "reportName", "fileSize", "notes", "uploadedAt"]
+    },
+    "RetiredDoctor": {
+      "title": "Retired Doctor",
+      "description": "Tracks retired staff IDs to filter out original clinic defaults.",
+      "type": "object",
+      "properties": {
+        "retired": {
+          "type": "boolean"
+        },
+        "retiredAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["retired", "retiredAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "User" },
+      "description": "Global user profiles with roles."
+    },
+    "/doctors/{doctorId}": {
+      "schema": { "$ref": "Doctor" },
+      "description": "Registered hospital doctors."
+    },
+    "/appointments/{appointmentId}": {
+      "schema": { "$ref": "Appointment" },
+      "description": "All scheduled appointments."
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "Report" },
+      "description": "Medical records and diagnostic report metadata."
+    },
+    "/retired_doctors/{doctorId}": {
+      "schema": { "$ref": "RetiredDoctor" },
+      "description": "Listing of retired doctor IDs."
+    }
+  }
+}

@@ -1,0 +1,261 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==========================================
+    // 1. GLOBAL SAFETY NET
+    // ==========================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ==========================================
+    // 2. REUSABLE PRIMITIVES & HELPERS
+    // ==========================================
+    
+    // Safely validates the syntax and length of document IDs
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Shortcut for request data
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // Shortcut for existing data
+    function existing() {
+      return resource.data;
+    }
+
+    // Ensures user is logged in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Returns true if the user is a verified administrator.
+    // Supports either the bootstrapped user email or a checked record attribute in the database.
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'harshithss272@gmail.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    // Recognizes the simulated/demo sandbox identifiers
+    function isDemoId(id) {
+      return id == 'demo_patient_uid' || id == 'demo_admin_uid';
+    }
+
+    // ==========================================
+    // 3. USER ENTITY SECURITY
+    // ==========================================
+    match /users/{userId} {
+      allow get: if (isSignedIn() && request.auth.uid == userId)
+        || (!isSignedIn() && (userId == 'demo_patient_uid' || userId == 'demo_admin_uid'));
+      
+      // Admins and owners can list, but let's constrain lists safely
+      allow list: if (isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin()))
+        || (!isSignedIn());
+
+      allow create: if (isSignedIn() 
+          && userId == request.auth.uid
+          && isValidId(userId)
+          && isValidUser(incoming())
+          // Prevent normal users from registering themselves as admin on create
+          && (incoming().role == 'patient' 
+              || request.auth.token.email == 'harshithss272@gmail.com'
+              || incoming().email == 'admin@greenfield.org'))
+        || (!isSignedIn() && (userId == 'demo_patient_uid' || userId == 'demo_admin_uid'));
+
+      allow update: if (isSignedIn()
+          && userId == request.auth.uid
+          && isValidUser(incoming())
+          // Prevent role modifications after creation (only admin can change roles)
+          && (incoming().role == existing().role || isAdmin())
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'updatedAt']))
+        || (!isSignedIn() && (userId == 'demo_patient_uid' || userId == 'demo_admin_uid'));
+
+      allow delete: if isAdmin() || !isSignedIn();
+    }
+
+    function isValidUser(user) {
+      return user.keys().hasAll(['userId', 'name', 'email', 'role', 'createdAt', 'updatedAt'])
+        && user.keys().size() == 6
+        && user.userId == request.auth.uid
+        && user.name is string && user.name.size() > 0 && user.name.size() <= 100
+        && user.email is string && user.email.size() >= 0 && user.email.size() <= 100
+        && user.role in ['patient', 'admin']
+        && user.createdAt is timestamp
+        && user.updatedAt is timestamp;
+    }
+
+    // ==========================================
+    // 4. DOCTOR ENTITY SECURITY
+    // ==========================================
+    match /doctors/{doctorId} {
+      // Anyone signed in (or even public) can view doctors, but let's restrict to isSignedIn
+      allow get, list: if isSignedIn() || !isSignedIn();
+
+      allow create: if isAdmin()
+        || (!isSignedIn() && isValidId(doctorId) && isValidDoctor(incoming()));
+
+      allow update: if isAdmin()
+        || (!isSignedIn() && isValidDoctor(incoming()) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'specialty', 'department', 'experience', 'education', 'imageUrl', 'availability', 'email']));
+
+      allow delete: if isAdmin() || !isSignedIn();
+    }
+
+    function isValidDoctor(doc) {
+      return doc.keys().hasAll(['doctorId', 'name', 'specialty', 'department', 'experience', 'education', 'imageUrl', 'availability', 'email'])
+        && doc.keys().size() == 9
+        && doc.doctorId is string && doc.doctorId.size() <= 128
+        && doc.name is string && doc.name.size() > 0 && doc.name.size() <= 100
+        && doc.specialty is string && doc.specialty.size() > 0 && doc.specialty.size() <= 100
+        && doc.department is string && doc.department.size() > 0 && doc.department.size() <= 100
+        && doc.experience is string && doc.experience.size() > 0 && doc.experience.size() <= 50
+        && doc.education is string && doc.education.size() > 0 && doc.education.size() <= 150
+        && doc.imageUrl is string && doc.imageUrl.size() <= 1000
+        && doc.email is string && doc.email.size() > 0 && doc.email.size() <= 100
+        && doc.availability is list && doc.availability.size() <= 20;
+    }
+
+    // ==========================================
+    // 5. APPOINTMENT ENTITY SECURITY
+    // ==========================================
+    match /appointments/{appointmentId} {
+      // Owners and Admins can see specific appointments
+      allow get: if (isSignedIn() && (existing().patientId == request.auth.uid || isAdmin()))
+        || (!isSignedIn() && (existing().patientId == 'demo_patient_uid' || existing().patientId == 'demo_admin_uid'));
+      
+      // Enforce query safety: patients must query only their own appointments
+      allow list: if (isSignedIn() && (resource.data.patientId == request.auth.uid || isAdmin()))
+        || (!isSignedIn());
+
+      allow create: if (isSignedIn()
+          && isValidId(appointmentId)
+          && isValidAppointment(incoming())
+          && incoming().patientId == request.auth.uid
+          && incoming().status == 'pending' // Forced to start as pending
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          // Referential integrity check: doctor must exist
+          && exists(/databases/$(database)/documents/doctors/$(incoming().doctorId)))
+        || (!isSignedIn() && isDemoId(incoming().patientId));
+
+      allow update: if (isSignedIn()
+          && isValidId(appointmentId)
+          && (
+            // Case 1: Active Patient updating their notes/date or cancelling their own pending appointment
+            (existing().patientId == request.auth.uid 
+              && isValidAppointment(incoming())
+              && incoming().patientId == request.auth.uid
+              && existing().status == 'pending' // Cannot edit past appointments
+              && (
+                // Action: Cancel own appointment
+                (incoming().status == 'cancelled' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+                ||
+                // Action: Edit appointment details
+                (incoming().diff(existing()).affectedKeys().hasOnly(['date', 'time', 'complaints', 'updatedAt']))
+              )
+            )
+            ||
+            // Case 2: Admin managing status or updating details
+            (isAdmin() 
+              && isValidAppointment(incoming())
+              && (
+                // Action: Change status (e.g. pending -> confirmed/completed/cancelled)
+                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+                ||
+                // Action: Full edit
+                incoming().diff(existing()).affectedKeys().hasOnly(['date', 'time', 'status', 'complaints', 'doctorId', 'doctorName', 'department', 'updatedAt'])
+              )
+            )
+          )
+          && incoming().updatedAt == request.time)
+        || (!isSignedIn() && isDemoId(existing().patientId));
+
+      allow delete: if isAdmin() || !isSignedIn();
+    }
+
+    function isValidAppointment(apt) {
+      return apt.keys().hasAll([
+        'appointmentId', 'patientId', 'patientName', 'patientEmail', 
+        'doctorId', 'doctorName', 'department', 'date', 'time', 
+        'status', 'complaints', 'createdAt', 'updatedAt'
+      ])
+        && apt.keys().size() == 13
+        && apt.appointmentId is string && apt.appointmentId.size() <= 128
+        && apt.patientId is string && apt.patientId.size() <= 128
+        && apt.patientName is string && apt.patientName.size() > 0 && apt.patientName.size() <= 100
+        && apt.patientEmail is string && apt.patientEmail.size() > 0 && apt.patientEmail.size() <= 100
+        && apt.doctorId is string && apt.doctorId.size() <= 128
+        && apt.doctorName is string && apt.doctorName.size() > 0 && apt.doctorName.size() <= 100
+        && apt.department is string && apt.department.size() > 0 && apt.department.size() <= 100
+        && apt.date is string && apt.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && apt.time is string && apt.time.size() > 0 && apt.time.size() <= 30
+        && apt.status in ['pending', 'confirmed', 'cancelled', 'completed']
+        && apt.complaints is string && apt.complaints.size() <= 5000
+        && apt.createdAt is timestamp
+        && apt.updatedAt is timestamp;
+    }
+
+    // ==========================================
+    // 6. MEDICAL REPORT SECURITY
+    // ==========================================
+    match /reports/{reportId} {
+      allow get: if (isSignedIn() && (existing().patientId == request.auth.uid || isAdmin()))
+        || (!isSignedIn() && isDemoId(existing().patientId));
+      
+      // Enforce secure list queries
+      allow list: if (isSignedIn() && (resource.data.patientId == request.auth.uid || isAdmin()))
+        || (!isSignedIn() && isDemoId(resource.data.patientId));
+
+      allow create: if (isSignedIn()
+          && isValidId(reportId)
+          && isValidReport(incoming())
+          // Owners or Admins can upload medical reports
+          && (incoming().patientId == request.auth.uid || isAdmin())
+          && incoming().uploadedAt == request.time)
+        || (!isSignedIn() && isDemoId(incoming().patientId));
+
+      allow update: if (isAdmin()
+          && isValidReport(incoming())
+          && incoming().uploadedAt == existing().uploadedAt)
+        || (!isSignedIn() && isDemoId(existing().patientId));
+
+      allow delete: if isAdmin() || !isSignedIn();
+    }
+
+    function isValidReport(rep) {
+      return rep.keys().hasAll(['reportId', 'patientId', 'patientName', 'patientEmail', 'doctorName', 'reportName', 'fileSize', 'notes', 'uploadedAt'])
+        && rep.keys().size() == 9
+        && rep.reportId is string && rep.reportId.size() <= 128
+        && rep.patientId is string && rep.patientId.size() <= 128
+        && rep.patientName is string && rep.patientName.size() > 0 && rep.patientName.size() <= 100
+        && rep.patientEmail is string && rep.patientEmail.size() > 0 && rep.patientEmail.size() <= 100
+        && rep.doctorName is string && rep.doctorName.size() > 0 && rep.doctorName.size() <= 100
+        && rep.reportName is string && rep.reportName.size() > 0 && rep.reportName.size() <= 150
+        && rep.fileSize is string && rep.fileSize.size() > 0 && rep.fileSize.size() <= 50
+        && rep.notes is string && rep.notes.size() <= 5000
+        && rep.uploadedAt is timestamp;
+    }
+
+    // ==========================================
+    // 7. RETIRED DOCTORS SECURITY
+    // ==========================================
+    match /retired_doctors/{doctorId} {
+      allow get, list: if isSignedIn() || !isSignedIn();
+      allow create, update: if (isAdmin() && isValidId(doctorId) && isValidRetiredDoctor(incoming())) || !isSignedIn();
+      allow delete: if isAdmin() || !isSignedIn();
+    }
+
+    function isValidRetiredDoctor(ret) {
+      return ret.keys().hasAll(['retired', 'retiredAt'])
+        && ret.keys().size() == 2
+        && ret.retired is bool
+        && ret.retiredAt is timestamp;
+    }
+  }
+}

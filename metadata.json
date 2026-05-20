@@ -1,0 +1,6 @@
+{
+  "name": "Greenfield Medical Center",
+  "description": "A high-fidelity full-stack hospital portal styled in a green medical visual theme. Supports online appointment booking, digital medical reports, public department listings, and direct patient and admin dashboards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
